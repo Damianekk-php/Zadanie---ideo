@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dodawanie Produktu i Kategorii</title>
+    <link rel="stylesheet" href="view/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+
+<h2>Dodaj Produkt do Istniejącej Kategorii</h2>
+<form id="product-form">
+    <div id="produkt">
+        <label for="product">Dodaj produkt</label>
+        <input type="text" name="product" id="product" required>
+    </div>
+
+    <div id="existing-category">
+        <label for="existing_category">Wybierz kategorię</label>
+        <select name="existing_category" id="existing_category" required>
+            <option value="">-- Wybierz kategorię --</option>
+        </select>
+    </div>
+
+    <button type="button" onclick="sendProductData()">Wyślij produkt</button>
+</form>
+
+<div id="responseProduct"></div>
+
+<h2>Dodaj Nową Kategorię</h2>
+<form id="add-category-form">
+    <div>
+        <label for="category">Dodaj nową kategorię:</label>
+        <input type="text" name="category" id="category" required>
+    </div>
+
+    <div>
+        <label for="parent-category">Wybierz kategorię nadrzędną:</label>
+        <select name="parent_category" id="parent-category">
+            <option value="null">Kategoria główna</option>
+        </select>
+    </div>
+
+    <button type="button" onclick="addCategory()">Dodaj kategorię</button>
+</form>
+
+<h2>Sortuj tabelę</h2>
+<label for="sort">Sortuj według:</label>
+<select id="sort" name="sort">
+    <option value="name_asc">Alfabetycznie od początku</option>
+    <option value="name_desc">Alfabetycznie od końca</option>
+    <option value="date_asc">Data rosnąco</option>
+    <option value="date_desc">Data malejąco</option>
+</select>
+
+<div id="response-category"></div>
+
+<div class="empty-div" id="tree-view"></div>
+
+<script>
+$(document).ready(function() {
+    loadParentCategories();
+    loadTreeView();
+
+    $('#sort').on('change', function() {
+        loadTreeView();
+    });
+});
+
+function updateTreeElementName(id, newName, type) {
+    var element;
+
+    if (type === 'category') {
+        element = document.querySelector(`li[data-id="${id}"][data-class="category"]`);
+    } else if (type === 'product') {
+        element = document.querySelector(`li[data-id="${id}"][data-class="product"]`);
+    }
+
+    if (element) {
+        element.textContent = newName;
+    }
+
+    updateSelectElementName(id, newName, type);
+}
+
+function updateSelectElementName(id, newName, type) {
+    const existingSelect = $('#existing_category');
+    const parentSelect = $('#parent-category');
+    
+    if (type === 'category') {
+        existingSelect.find(`option[value="${id}"]`).text(newName);
+    }
+    
+    parentSelect.find(`option[value="${id}"]`).text(newName);
+}
+
+function loadTreeView() {
+    const sort = $('#sort').val();
+
+    $.ajax({
+        type: "GET",
+        url: "controller/get_categories_and_products.php",
+        data: { sort: sort },
+        success: function(response) {
+            var data = JSON.parse(response);
+            if (data.error) {
+                $('#tree-view').html('<span>Błąd: ' + data.error + '</span>');
+            } else {
+                renderTree(data.categories, data.products);
+            }
+        },
+        error: function(xhr, status, error) {
+            $('#tree-view').html('<span>Błąd w zapytaniu: ' + xhr.status + '</span>');
+        }
+    });
+}
+
+function renderTree(categories, products) {
+    const treeView = $('#tree-view');
+    treeView.empty();
+
+    const createCategoryElement = (category) => {
+        let html = `
+            <li data-id="${category.id_category}" class="category">
+                ${category.name} 
+                <button onclick="openEditPage('category', '${category.name}', '${category.id_category}')">Edytuj</button>
+                <ul>`;
+
+        if (products[category.id_category]) {
+            products[category.id_category].forEach(product => {
+                html += createProductElement(product);
+            });
+        }
+
+        html += `</ul></li>`;
+        return html;
+    };
+
+    const createProductElement = (product) => {
+        return `
+            <li data-id="${product.id_product}" class="product">
+                ${product.name} 
+                <button onclick="openEditPage('product', '${product.name}', '${product.id_product}')">Edytuj</button>
+            </li>`;
+    };
+
+    const createCategoryList = (parentId) => {
+        let html = '<ul data-id="' + parentId + '">';
+        
+        categories.forEach(category => {
+            if (category.id_parent == parentId) {
+                html += createCategoryElement(category);
+
+                html += createCategoryList(category.id_category);
+            }
+        });
+        
+        html += '</ul>';
+        return html;
+    };
+
+    treeView.append(createCategoryList(0)); 
+
+    loadCategoriesIntoSelect(categories);
+}
+
+function loadCategoriesIntoSelect(categories) {
+    const select = $('#existing_category');
+    select.empty();
+    select.append('<option value="">-- Wybierz kategorię --</option>');
+
+    categories.forEach(function(category) {
+        select.append('<option value="' + category.id_category + '">' + category.name + '</option>');
+    });
+}
+
+function loadParentCategories() {
+    const parentSelect = $('#parent-category');
+    parentSelect.empty();
+    parentSelect.append('<option value="null">Kategoria główna</option>');
+
+    $.ajax({
+        type: "GET",
+        url: "controller/get_categories.php",
+        success: function(response) {
+            var categories = JSON.parse(response);
+            categories.forEach(function(category) {
+                parentSelect.append('<option value="' + category.id_category + '">' + category.name + '</option>');
+            });
+        }
+    });
+}
+
+function addCategory() {
+    var categoryName = $('#category').val();
+    var parentCategoryId = $('#parent-category').val();
+
+    $.ajax({
+        type: "POST",
+        url: "controller/save_category.php",
+        data: {
+            category: categoryName,
+            parent_category: parentCategoryId
+        },
+        success: function(response) {
+            $('#response-category').html(response);
+
+            loadParentCategories();
+
+            loadTreeView();
+        },
+        error: function(xhr, status, error) {
+            alert("Błąd w zapytaniu: " + xhr.status);
+        }
+    });
+}
+
+function sendProductData() {
+    var product = $('#product').val();
+    var categoryId = $('#existing_category').val();
+
+    if (!categoryId || categoryId === "") {
+        alert("Proszę wybrać kategorię.");
+        return;
+    }
+
+    $.ajax({
+        type: "POST",
+        url: "controller/save_product.php",
+        data: { 
+            product: product, 
+            category: categoryId 
+        },
+        success: function(response) {
+            $('#responseProduct').html(response); 
+            loadTreeView(); 
+        },
+        error: function(xhr, status, error) {
+            console.error("Błąd w zapytaniu: " + xhr.status);
+        }
+    });
+}
+
+function openEditPage(type, name, id) {
+    const url = `edycja.php?type=${type}&name=${encodeURIComponent(name)}&id=${id}`;
+    window.open(url, 'Edycja', 'width=600,height=400');
+}
+</script>
+
+</body>
+</html>
